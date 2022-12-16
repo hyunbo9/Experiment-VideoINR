@@ -1,0 +1,3 @@
+docker run -it --gpus "device=0,1,2" -v /media/ssd1/users/hyunbo:/workspace --ipc=host pytorch/pytorch:1.4-cuda10.1-cudnn7-devel
+
+docker run -it --gpus all -v /media/ssd1/users/hyunbo:/workspace --ipc=host pytorch/pytorch:1.4-cuda10.1-cudnn7-devel
