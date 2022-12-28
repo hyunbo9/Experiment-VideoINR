@@ -130,7 +130,6 @@ class PCD_Align(nn.Module):
         y = torch.cat(y, dim=1)
         return y
 
-
 class Easy_PCD(nn.Module):
     def __init__(self, nf=64, groups=8):
         super(Easy_PCD, self).__init__()
@@ -166,7 +165,6 @@ class Easy_PCD(nn.Module):
         aligned_fea = self.pcd_align(fea1, fea2)
         fusion_fea = self.fusion(aligned_fea)  # [B, N, C, H, W]
         return fusion_fea
-
 
 class DeformableConvLSTM(ConvLSTM):
     def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, front_RBs, groups,
@@ -247,7 +245,6 @@ class DeformableConvLSTM(ConvLSTM):
     def _init_hidden(self, batch_size, tensor_size):
         return super()._init_hidden(batch_size, tensor_size)
 
-
 class BiDeformableConvLSTM(nn.Module):
     def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, front_RBs, groups,
                  batch_first=False, bias=True, return_all_layers=False):
@@ -270,13 +267,13 @@ class BiDeformableConvLSTM(nn.Module):
         result = self.conv_1x1(result)
         return result.view(B, -1, C, H, W)
 
-
 class LunaTokis(nn.Module):
     def __init__(self, nf=64, nframes=3, groups=8, front_RBs=5, back_RBs=10):
         super(LunaTokis, self).__init__()
         self.nf = nf
         self.in_frames = 1 + nframes // 2
         self.ot_frames = nframes
+        
         p_size = 48  # a place holder, not so useful
         patch_size = (p_size, p_size)
         n_layers = 1
@@ -298,6 +295,7 @@ class LunaTokis(nn.Module):
                                               groups=groups)
         #### reconstruction
         self.recon_trunk = mutil.make_layer(ResidualBlock_noBN_f, back_RBs)
+
         #### upsampling
         self.upconv1 = nn.Conv2d(nf, nf * 4, 3, 1, 1, bias=True)
         self.upconv2 = nn.Conv2d(nf, 64 * 4, 3, 1, 1, bias=True)
@@ -308,13 +306,14 @@ class LunaTokis(nn.Module):
         #### activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
-        imnet_spec2 = {'name': 'mlp', 'args': {'out_dim': 3, 'hidden_list': [64, 64, 256, 256]}}
-        # self.encode_imnet = liif_models.make(imnet_spec2, args={'in_dim': 194})
-        self.feat_imnet = Siren(in_features=201, out_features=64, hidden_features=[64, 64, 256],
+        #### image feature extraction
+        self.feat_imnet = Siren(in_features=192 + 6 + 2 + 1, out_features=64, hidden_features=[64, 64, 256],
                                 hidden_layers=2, outermost_linear=True)
-        self.flow_imnet = Siren(in_features=65 + 192 + 6, out_features=4, hidden_features=[64, 64, 256],
+
+        self.flow_imnet = Siren(in_features=64 + 192 + 6 + 1, out_features=4, hidden_features=[64, 64, 256],
                                 hidden_layers=2, outermost_linear=True)
-        self.encode_imnet = Siren(in_features=141 + 192 * 2, out_features=3, hidden_features=[64, 64, 256, 256],
+
+        self.encode_imnet = Siren(in_features=(64 + 6 + 192)*2 + 1, out_features=3, hidden_features=[64, 64, 256, 256],
                                   hidden_layers=3, outermost_linear=True)
 
     def gen_feat(self, x):
@@ -330,6 +329,7 @@ class LunaTokis(nn.Module):
         # L3
         L3_fea = self.lrelu(self.fea_L3_conv1(L2_fea))
         L3_fea = self.lrelu(self.fea_L3_conv2(L3_fea))
+
         L1_fea = L1_fea.view(B, N, -1, H, W)
         L2_fea = L2_fea.view(B, N, -1, H // 2, W // 2)
         L3_fea = L3_fea.view(B, N, -1, H // 4, W // 4)
@@ -343,10 +343,13 @@ class LunaTokis(nn.Module):
         '''
         for idx in range(N - 1):
             fea1 = [
-                L1_fea[:, idx, :, :, :].clone(), L2_fea[:, idx, :, :, :].clone(), L3_fea[:, idx, :, :, :].clone()
+                L1_fea[:, idx, :, :, :].clone(), 
+                L2_fea[:, idx, :, :, :].clone(), 
+                L3_fea[:, idx, :, :, :].clone()
             ]
             fea2 = [
-                L1_fea[:, idx + 1, :, :, :].clone(), L2_fea[:, idx + 1, :, :, :].clone(),
+                L1_fea[:, idx + 1, :, :, :].clone(), 
+                L2_fea[:, idx + 1, :, :, :].clone(),
                 L3_fea[:, idx + 1, :, :, :].clone()
             ]
             aligned_fea = self.pcd_align(fea1, fea2)
@@ -356,6 +359,7 @@ class LunaTokis(nn.Module):
                 to_lstm_fea.append(fea1[0])
             to_lstm_fea.append(fusion_fea)
             to_lstm_fea.append(fea2[0])
+
         lstm_feats = torch.stack(to_lstm_fea, dim=1)
         #### align using bidirectional deformable conv-lstm
         feats = self.ConvBLSTM(lstm_feats)
@@ -370,99 +374,166 @@ class LunaTokis(nn.Module):
         return
 
     def decoding(self, times=None, scale=None):
-        feat = torch.cat([self.feat[:, 0], self.feat[:, 1], self.feat[:, 2]], dim=1)
+        # size of self.feat: [8, 3, 64, H, W]
+        # size of feat: [8, 3*64, H, W], (H,W = 32, 32)
+        feat = torch.cat([self.feat[:, 0], self.feat[:, 1], self.feat[:, 2]], dim=1) 
 
         bs, C, H, W = feat.shape
         if isinstance(scale, int):
             HH, WW = H * scale, W * scale
         else:
             HH, WW = scale[0], scale[1]
-        coord_highres = make_coord((HH, WW)).repeat(bs, 1, 1).clamp(-1 + 1e-6, 1 - 1e-6).cuda()
-
-        feat_coord = make_coord(feat.shape[-2:], flatten=False).cuda() \
-            .permute(2, 0, 1) \
-            .unsqueeze(0).expand(feat.shape[0], 2, *feat.shape[-2:])
+        
+        ##### coords #####
+        # coord_highres: [B, HH*WW, 2]
+        coord_highres = make_coord((HH, WW)).repeat(bs, 1, 1).clamp(-1 + 1e-6, 1 - 1e-6).cuda() 
+        feat_coord = make_coord(feat.shape[-2:], flatten=False).cuda().permute(2, 0, 1).unsqueeze(0).expand(feat.shape[0], 2, *feat.shape[-2:]) # size: [B, 2, H, W]
+        ##### coords #####
 
         preds = []
-        for c in range(len(times)):
+        for c in range(len(times)):   # random in times: [1/8, 2/8, ..., 1]
+            # size of self.inp: [B, 2, 3, H, W], H, W = 32
+            # size of coord_highres: [B, HH*WW, 2], HH, WW = 128
             qs = coord_highres.shape[1]
-            q_feat = F.grid_sample(
-                feat, coord_highres.flip(-1).unsqueeze(1),
+
+            ###################### HRfeat ######################
+            q_feat = F.grid_sample(                     # 8 x HH*WW x 192
+                feat,\
+                coord_highres.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_inp = F.grid_sample(
-                self.inp.view(feat.shape[0], -1, feat.shape[2], feat.shape[3]), coord_highres.flip(-1).unsqueeze(1),
+
+            q_inp = F.grid_sample(                       # 8 x HH*WW x 6
+                self.inp.view(feat.shape[0], -1, feat.shape[2], feat.shape[3]),\
+                coord_highres.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_coord = F.grid_sample(
-                feat_coord, coord_highres.flip(-1).unsqueeze(1),
+
+            # nearest neighbor z*
+            q_coord = F.grid_sample(                     # 8 x HH*WW x 2
+                feat_coord,\
+                coord_highres.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            rel_coord = coord_highres - q_coord
+
+            rel_coord = coord_highres - q_coord  
             rel_coord[:, :, 0] *= feat.shape[-2]
             rel_coord[:, :, 1] *= feat.shape[-1]
-            pe_coord = torch.ones_like(coord_highres[:, :, 0].unsqueeze(2)) * times[c].unsqueeze(2)
 
+            # pe_coord is the time coordinate
+            pe_coord = torch.ones_like(coord_highres[:, :, 0].unsqueeze(2)) * times[c].unsqueeze(2) # 8 x HH*WW x 1
+
+            # q_feat, q_inp, rel_coord, pe_coord: [B, HH*WW, ?]
             inp = torch.cat([q_feat, q_inp, rel_coord, pe_coord], dim=-1)
-            HRfeat = self.feat_imnet(inp.view(bs * qs, -1)).view(bs, qs, -1)
-            HRfeat = HRfeat.permute(0, 2, 1).view(bs, 64, HH, WW)
+            
+            # ! self.feat_imnet
+            HRfeat = self.feat_imnet(inp.view(bs * qs, -1)).view(bs, qs, -1) # 8 x HH*WW x 64
+            HRfeat = HRfeat.permute(0, 2, 1).view(bs, 64, HH, WW) # 8 x 64 x HH x WW
             HRinp = self.inp.view(feat.shape[0], -1, feat.shape[2], feat.shape[3])
-            # HRinp = F.upsample(HRinp, scale_factor=4, mode='bilinear')
+
             del q_coord, rel_coord, inp
             torch.cuda.empty_cache()
-            q_feat = F.grid_sample(
-                HRfeat, coord_highres.flip(-1).unsqueeze(1),
+
+            ################## flow_pred ###################
+            q_feat = F.grid_sample(   # 8 x HH*WW x 64
+                HRfeat,\
+                coord_highres.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_inp = F.grid_sample(
-                HRinp, coord_highres.flip(-1).unsqueeze(1),
+                
+            q_inp = F.grid_sample(    # 8 x HH*WW x 6
+                HRinp,\
+                coord_highres.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_feat0 = F.grid_sample(
-                feat, coord_highres.flip(-1).unsqueeze(1),
+
+            q_feat0 = F.grid_sample(  # 8 x HH*WW x 192
+                feat,\
+                coord_highres.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
+
+            # q_feat, q_feat0, q_inp, pe_coord: [B, HH*WW, ?]
             flow_inp = torch.cat([q_feat, q_feat0, q_inp, pe_coord], dim=-1)
+
+            # ! self.flow_imnet
+            # flow_pred: [B, HH*WW, 4]
             flow_pred = self.flow_imnet(flow_inp.view(bs * qs, -1)).view(bs, qs, -1)
+
             del q_feat, q_inp, q_feat0, flow_inp
             torch.cuda.empty_cache()
             flow_pred = flow_pred.permute(0, 2, 1).view(bs, 4, HH, WW)
+            flow_pred_for_first_image = flow_pred[:, :2]
+            flow_pred_for_second_image = flow_pred[:, 2:]
 
-            grid1, _ = warpgrid(self.inp[:, 0], flow_pred[:, :2])
-            grid2, _ = warpgrid(self.inp[:, 1], flow_pred[:, 2:])
+            # size of self.inp : [B, 2, H, W]
+            # size of grid1 : [B, HH, WW, 2]
+            # size of grid2 : [B, HH, WW, 2]
+            first_image = self.inp[:, 0]
+            second_image = self.inp[:, 1]
+
+            grid1, _ = warpgrid(first_image, flow_pred_for_first_image)
+            grid2, _ = warpgrid(second_image, flow_pred_for_second_image)
+
             del flow_pred
             torch.cuda.empty_cache()
+
+            ######################## pred ########################
+            ##### for grid 1 #####
             grid = grid1.view(grid1.shape[0], -1, grid1.shape[-1]).flip(-1).clamp(-1 + 1e-6, 1 - 1e-6)
-            q_feat1 = F.grid_sample(
+
+            q_feat1 = F.grid_sample(    # 8 x HH*WW x 64
                 HRfeat, grid.flip(-1).unsqueeze(1),
-                mode='bilinear', align_corners=False)[:, :, 0, :] \
+                mode='bilinear', align_corners=False)[:, :, 0, :]\
                 .permute(0, 2, 1)
-            q_img1 = F.grid_sample(
+
+            q_img1 = F.grid_sample(     # 8 x HH*WW x 6
                 HRinp, grid.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_feat3 = F.grid_sample(
+
+            q_feat3 = F.grid_sample(    # 8 x HH*WW x 192
                 feat, grid.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
+
+            ##### for grid 2 #####
             grid = grid2.view(grid2.shape[0], -1, grid2.shape[-1]).flip(-1).clamp(-1 + 1e-6, 1 - 1e-6)
-            q_feat2 = F.grid_sample(
+
+            q_feat2 = F.grid_sample(    # 8 x HH*WW x 64
                 HRfeat, grid.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_img2 = F.grid_sample(
+
+            q_img2 = F.grid_sample(     # 8 x HH*WW x 6
                 HRinp, grid.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
-            q_feat4 = F.grid_sample(
+
+            q_feat4 = F.grid_sample(    # 8 x HH*WW x 192
                 feat, grid.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
 
             inp = torch.cat([q_feat1, q_feat2, q_feat3, q_feat4, q_img1, q_img2, pe_coord], dim=-1)
-            pred = self.encode_imnet(inp.view(bs * qs, -1)).view(bs, qs, -1)
+
+            # ! self.encode_imnet
+            pred = self.encode_imnet(inp.view(bs * qs, -1)).view(bs, qs, -1) 
             pred = pred.permute(0, 2, 1).view(bs, 3, HH, WW)
             preds.append(pred)
+
+            # size of q_feat1: [B, qs, 64]
+            # size of q_feat2: [B, qs, 64]
+            # size of q_feat3: [B, qs, 192]
+            # size of q_feat4: [B, qs, 192]
+            # size of q_img1: [B, qs, 6]
+            # size of q_img2: [B, qs, 6]
+            # size of pe_coord: [B, qs, 1]
+            # size of inp: [B, qs, 525]
+            # size of pred: [B, 3, HH, WW]
+
+
+        # size of preds: [T, B, 3, HH, WW] -> video
         return preds
 
     def decoding_test(self, times=None, scale=None):
@@ -507,6 +578,8 @@ class LunaTokis(nn.Module):
             inp_p1 = inp[:, :qs1]
             inp_p2 = inp[:, qs1:qs1 + qs2]
             inp_p3 = inp[:, qs1 + qs2:]
+
+            # ! feat_imnet
             pred_p1 = self.feat_imnet(inp_p1.view(bs * qs1, -1)).view(bs, qs1, -1)
             pred_p2 = self.feat_imnet(inp_p2.view(bs * qs2, -1)).view(bs, qs2, -1)
             pred_p3 = self.feat_imnet(inp_p3.view(bs * qs3, -1)).view(bs, qs3, -1)
@@ -516,6 +589,8 @@ class LunaTokis(nn.Module):
             torch.cuda.empty_cache()
 
             HRfeat = HRfeat.permute(0, 2, 1).view(bs, 64, HH, WW)
+            
+
             HRinp = self.inp.view(feat.shape[0], -1, feat.shape[2], feat.shape[3])
             HRinp = F.upsample(HRinp, scale_factor=4, mode='bilinear')
 
@@ -531,23 +606,30 @@ class LunaTokis(nn.Module):
                 feat, coord_highres.flip(-1).unsqueeze(1),
                 mode='bilinear', align_corners=False)[:, :, 0, :] \
                 .permute(0, 2, 1)
+
             flow_inp = torch.cat([q_feat, q_feat0, q_inp, pe_coord], dim=-1)
             flow_inp1 = flow_inp[:, :qs1]
             flow_inp2 = flow_inp[:, qs1:qs1 + qs2]
             flow_inp3 = flow_inp[:, qs1 + qs2:]
+
+            # ! flow_imnet
             flow_pred1 = self.flow_imnet(flow_inp1.view(bs * qs1, -1)).view(bs, qs1, -1)
             flow_pred2 = self.flow_imnet(flow_inp2.view(bs * qs2, -1)).view(bs, qs2, -1)
             flow_pred3 = self.flow_imnet(flow_inp3.view(bs * qs3, -1)).view(bs, qs3, -1)
             flow_pred = torch.cat([flow_pred1, flow_pred2, flow_pred3], dim=1)
             del q_feat, q_inp, q_feat0, flow_inp, flow_inp1, flow_inp2, flow_inp3, flow_pred1, flow_pred2, flow_pred3
             torch.cuda.empty_cache()
-            flow_pred = flow_pred.permute(0, 2, 1).view(bs, 4, HH, WW)
 
-            grid1, _ = warpgrid(self.inp[:, 0], flow_pred[:, :2])
-            grid2, _ = warpgrid(self.inp[:, 1], flow_pred[:, 2:])
-            del flow_pred
+            flow_pred = flow_pred.permute(0, 2, 1).view(bs, 4, HH, WW) # 4 for 2 flows
+            flow_pred_for_grid1 = flow_pred[:, :2]
+            flow_pred_for_grid2 = flow_pred[:, 2:]
+
+            grid1, _ = warpgrid(self.inp[:, 0], flow_pred_for_grid1)
+            grid2, _ = warpgrid(self.inp[:, 1], flow_pred_for_grid2)
+            del flow_pred, flow_pred_for_grid1, flow_pred_for_grid2
             torch.cuda.empty_cache()
 
+            
             grid = grid1.view(grid1.shape[0], -1, grid1.shape[-1]).flip(-1).clamp(-1 + 1e-6, 1 - 1e-6)
             q_feat1 = F.grid_sample(
                 HRfeat, grid.flip(-1).unsqueeze(1),
@@ -579,18 +661,20 @@ class LunaTokis(nn.Module):
             inp_p1 = torch.cat([q_feat1[:, :qs1], q_feat2[:, :qs1],
                                 q_feat3[:, :qs1], q_feat4[:, :qs1],
                                 q_img1[:, :qs1], q_img2[:, :qs1], pe_coord[:, :qs1]], dim=-1)
+
+            # ! encdoe_imnet
             pred_p1 = self.encode_imnet(inp_p1.view(bs * qs1, -1)).view(bs, qs1, -1)
 
             inp_p2 = torch.cat([q_feat1[:, qs1:qs1 + qs2], q_feat2[:, qs1:qs1 + qs2],
                                 q_feat3[:, qs1:qs1 + qs2], q_feat4[:, qs1:qs1 + qs2],
                                 q_img1[:, qs1:qs1 + qs2], q_img2[:, qs1:qs1 + qs2], pe_coord[:, qs1:qs1 + qs2]], dim=-1)
-            pred_p2 = self.encode_imnet(inp_p2.view(bs * qs2, -1)).view(bs, qs2, -1)
 
+            pred_p2 = self.encode_imnet(inp_p2.view(bs * qs2, -1)).view(bs, qs2, -1)
             inp_p3 = torch.cat([q_feat1[:, qs1 + qs2:], q_feat2[:, qs1 + qs2:],
                                 q_feat3[:, qs1 + qs2:], q_feat4[:, qs1 + qs2:],
                                 q_img1[:, qs1 + qs2:], q_img2[:, qs1 + qs2:], pe_coord[:, qs1 + qs2:]], dim=-1)
+            
             pred_p3 = self.encode_imnet(inp_p3.view(bs * qs3, -1)).view(bs, qs3, -1)
-
             pred = torch.cat([pred_p1, pred_p2, pred_p3], dim=1)
             del inp_p1, inp_p2, inp_p3, pred_p1, pred_p2, pred_p3, q_feat1, q_feat2, q_feat3, q_feat4, q_img1, q_img2, pe_coord
             torch.cuda.empty_cache()
@@ -600,17 +684,19 @@ class LunaTokis(nn.Module):
         return preds
 
     def forward(self, x, times=None, scale=None, test=False):
+        # size of x : [batch, 2, 3, 32, 32]
         self.gen_feat(x)
         self.inp = x
+
         if test == True:
             return self.decoding_test(times, scale)
         else:
             scale = (scale[0][0], scale[1][0])
             return self.decoding(times, scale)
 
-
 def make_coord(shape, ranges=None, flatten=True):
-    """ Make coordinates at grid centers.
+    """ 
+    Make coordinates at grid centers.
     """
     coord_seqs = []
     for i, n in enumerate(shape):
@@ -622,6 +708,9 @@ def make_coord(shape, ranges=None, flatten=True):
         seq = v0 + r + (2 * r) * torch.arange(n).float()
         coord_seqs.append(seq)
     ret = torch.stack(torch.meshgrid(*coord_seqs), dim=-1)
+
     if flatten:
         ret = ret.view(-1, ret.shape[-1])
+    
+    # import pdb; pdb.set_trace()     
     return ret

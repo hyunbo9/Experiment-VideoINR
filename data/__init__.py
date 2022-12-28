@@ -33,7 +33,7 @@ def create_dataloader(dataset, dataset_opt, opt, sampler):
             return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                                            num_workers=num_workers, sampler=sampler, drop_last=True,
                                            pin_memory=False, collate_fn=collate_function)
-        else if dataset_opt['name'] == 'Adobe':
+        elif dataset_opt['name'] == 'Adobe':
             return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                                            num_workers=num_workers, sampler=sampler, drop_last=True,
                                            pin_memory=False)

@@ -43,7 +43,7 @@ network_G:
 path:
   pretrain_model_G: ~
   strict_load: false #true #
-  resume_state: saved_checkpoints/448000.state
+  resume_state: ~ # saved_checkpoints/448000.state
   models: saved_checkpoints/
   training_state: saved_checkpoints/
 
