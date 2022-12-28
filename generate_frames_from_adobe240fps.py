@@ -19,7 +19,7 @@ train_txt = 'data/adobe240fps_folder_train.txt'
 valid_txt = 'data/adobe240fps_folder_valid.txt'
 test_txt = 'data/adobe240fps_folder_test.txt'
 
-# Run
+# Run 
 # ============================
 
 with open(train_txt) as f:

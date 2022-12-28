@@ -21,10 +21,6 @@ from data import create_dataloader, create_dataset
 from models import create_model
 from pdb import set_trace as bp
 
-# import pdb; pdb.set_trace()
-
-import time 
-#time.sleep(7200)
 
 def init_dist(backend='nccl', **kwargs):
     ''' initialization for distributed training'''
@@ -81,6 +77,7 @@ def main():
                           screen=True, tofile=True)
         logger = logging.getLogger('base')
         logger.info(option.dict2str(opt))
+
         # tensorboard logger
         if opt['use_tb_logger'] and 'debug' not in opt['name']:
             version = float(torch.__version__[0:3])

@@ -1,5 +1,7 @@
 /saved_checkpoints
 /images
 /adobe240
+/output
+/output_scale_factor4
 
 latest_G.pth

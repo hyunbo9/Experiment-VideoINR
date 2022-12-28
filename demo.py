@@ -14,11 +14,12 @@ from data.util import imresize_np
 parser = argparse.ArgumentParser()
 parser.add_argument('--space_scale', type=int, default=4, help="upsampling space scale")
 parser.add_argument('--time_scale', type=int, default=8, help="upsampling time scale")
-parser.add_argument('--data_path', type=str, required=True, help="data path for testing")
+
 parser.add_argument('--out_path_lr', type=str, default="./output/LR/", help="output path (Low res image)")
 parser.add_argument('--out_path_bicubic', type=str, default="./output/Bicubic/", help="output path (bicubic upsampling)")
 parser.add_argument('--out_path_ours', type=str, default="./output/VideoINR/", help="output path (VideoINR)")
 parser.add_argument('--model_path', type=str, default="latest_G.pth", help="model parameter path")
+
 opt = parser.parse_known_args()[0]
 
 device = 'cuda'
@@ -39,7 +40,6 @@ def single_forward(model, imgs_in, space_scale, time_scale):
         time_Tensors = [torch.tensor([i / time_scale])[None].to(device) for i in range(time_scale)]
         model_output = model(imgs_temp, time_Tensors, space_scale, test=True)
         return model_output
-
 
 os.makedirs(opt.out_path_lr, exist_ok=True)
 os.makedirs(opt.out_path_bicubic, exist_ok=True)
@@ -64,7 +64,7 @@ for ind in tqdm(range(len(path_list) - 1)):
     You may skip this step if your input video
     is already of relatively low resolution.
     '''
-    import pdb; pdb.set_trace()
+    #import pdb; pdb.set_trace()
 
     img1 = imresize_np(img1, 1 / 8, True).astype(np.float32) / 255.
     img2 = imresize_np(img2, 1 / 8, True).astype(np.float32) / 255.
@@ -76,6 +76,8 @@ for ind in tqdm(range(len(path_list) - 1)):
     imgs = torch.from_numpy(np.ascontiguousarray(np.transpose(imgs, (0, 3, 1, 2)))).float()[None].to(device)
 
     output = single_forward(model, imgs, opt.space_scale, opt.time_scale)
+
+    import pdb; pdb.set_trace()
 
     '''
     Save results of VideoINR and bicubic up-sampling.

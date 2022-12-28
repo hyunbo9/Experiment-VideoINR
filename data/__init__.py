@@ -33,10 +33,12 @@ def create_dataloader(dataset, dataset_opt, opt, sampler):
             return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                                            num_workers=num_workers, sampler=sampler, drop_last=True,
                                            pin_memory=False, collate_fn=collate_function)
-        else:
+        else if dataset_opt['name'] == 'Adobe':
             return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
                                            num_workers=num_workers, sampler=sampler, drop_last=True,
                                            pin_memory=False)
+        else:
+            raise NotImplementedError('does not support [{:s}]'.format(dataset_opt['name']))
     else:
         return torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1,
                                            pin_memory=True)

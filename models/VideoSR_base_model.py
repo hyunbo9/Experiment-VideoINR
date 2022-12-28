@@ -11,8 +11,6 @@ from models.modules.loss import CharbonnierLoss, LapLoss
 from pdb import set_trace as bp
 
 logger = logging.getLogger('base')
-
-
 class VideoSRBaseModel(BaseModel):
     def __init__(self, opt):
         super(VideoSRBaseModel, self).__init__(opt)
