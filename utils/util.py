@@ -98,6 +98,7 @@ def setup_logger(logger_name, root, phase, level=logging.INFO, screen=False, tof
         lg.addHandler(sh)
 
 
+
 ####################
 # image convert
 ####################
@@ -136,7 +137,6 @@ def save_img(img, img_path, mode='RGB'):
 ####################
 # metric
 ####################
-
 
 def calculate_psnr(img1, img2):
     # img1 and img2 have range [0, 255]

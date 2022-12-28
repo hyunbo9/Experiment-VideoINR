@@ -33,31 +33,29 @@ def main():
 
                 generated_img = f'../output_scale_factor4/{checkpoint}/{data_name}/VideoINR/{original_img_name}.jpg'
                 if not os.path.exists(generated_img):
-                    #print("generated_img not exist")
-                    #print(f"data_name: {data_name}, original_img_name: {original_img_name}")
                     continue
                 data_num += 1
 
                 original_img = cv2.imread(original_img)
                 generated_img = cv2.imread(generated_img)
 
-                # covert to yuv
-                original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2YUV)
-                generated_img = cv2.cvtColor(generated_img, cv2.COLOR_BGR2YUV)
+                # change to rgb and range [0, 1]:
+                original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB) / 255.
+                generated_img = cv2.cvtColor(generated_img, cv2.COLOR_BGR2RGB) / 255.
 
-                psnr_sum += psnr(original_img, generated_img)
-                ssim_sum += ssim(original_img, generated_img)
-                
+                psnr_sum += PSNR_Y(original_img, generated_img)
+
             if checkpoint not in result:
                 result[checkpoint] = {}
             else:
                 result[checkpoint].update({
-                    data_name: [psnr_sum / data_num, ssim_sum / data_num, data_num]
+                    data_name: [psnr_sum / data_num, data_num]
                     })
 
-            #result[data_name + " from " + checkpoint] = f", psnr: {psnr_sum / data_num}, ssim: {ssim_sum / data_num}"
-            print(" checkpoint: ", checkpoint, " data_name: ", data_name, " data_num: ", data_num, \
-                        "psnr: ", psnr_sum / data_num, " ssim: ", ssim_sum / data_num)
+            print(" checkpoint: ", checkpoint,\
+                  " data_name: ", data_name,\
+                  " data_num: ", data_num,\
+                  "psnr: ", psnr_sum / data_num)
 
         print("===================================================================================================")
 
@@ -71,8 +69,36 @@ def main():
         }
     """
 
-    store_result_to_text(result, 'result_yuv_1223.txt')
+    store_result_to_text(result, 'result_y_1228.txt')
     return result
+
+# reference: https://github.com/idealo/image-super-resolution/blob/master/ISR/utils/metrics.py
+def RGB_to_Y(image):
+    """ Image has values from 0 to 1. """
+    
+    R = image[:, :, 0]
+    G = image[:, :, 1]
+    B = image[:, :, 2]
+    
+    Y = 16 + (65.738 * R) + 129.057 * G + 25.064 * B
+    return Y / 255.0
+
+
+def PSNR_Y(y_true, y_pred, MAXp=1):
+    """
+    Evaluates the PSNR value on the Y channel:
+        PSNR = 20 * log10(MAXp) - 10 * log10(MSE).
+    Args:
+        y_true: ground truth.
+        y_pred: predicted value.
+        MAXp: maximum value of the pixel range (default=1).
+    """
+    y_true = RGB_to_Y(y_true)
+    y_pred = RGB_to_Y(y_pred)
+    
+
+    return -10.0 * math.log(np.mean(np.square(y_pred - y_true))) / math.log(10.0)
+
 
 
 # dict to store the results
@@ -89,8 +115,10 @@ def store_result_to_text(result, path):
     with open(path, 'w') as f:
         for checkpoint in ['given_checkpoint', 'default_checkpoint']:
             for data_name in result[checkpoint].keys():
-                f.write(f"data_name: {data_name}, psnr: {result[checkpoint][data_name][0]}, ssim: {result[checkpoint][data_name][1]}, data_num: {result[checkpoint][data_name][2]} \n")
+                f.write(f"data_name: {data_name}, psnr: {result[checkpoint][data_name][0]}, data_num: {result[checkpoint][data_name][1]} \n")
             f.write(f"=================================================================================================== \n")
+
+############################################################################################################################################################
 
 
 def calculate_psnr(img1, img2):
